@@ -12,7 +12,7 @@ links:
     target: criterion/annotation-boundaries
 */
 export function readMarkdown(source: SourceInput): ReadResult {
-  const tokens = parser.parse(source.text, {});
+  const tokens = parser.parse(source.text.replace(/^\uFEFF/, ' '), {});
   const offsets = [0];
   for (let i = 0; i < source.text.length; i++) if (source.text[i] === '\n') offsets.push(i + 1);
   const offset = (line: number) => offsets[line] ?? source.text.length;

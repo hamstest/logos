@@ -11,7 +11,7 @@ links:
 */
 export function readTypeScript(source: SourceInput): ReadResult {
   const scriptKind = source.path.endsWith('.tsx') ? ts.ScriptKind.TSX : source.path.endsWith('.jsx') ? ts.ScriptKind.JSX : ts.ScriptKind.TS;
-  const ast = ts.createSourceFile(source.path, source.text, ts.ScriptTarget.Latest, true, scriptKind);
+  const ast = ts.createSourceFile(source.path, source.text.replace(/^\uFEFF#!/, '\uFEFF//'), ts.ScriptTarget.Latest, true, scriptKind);
   const errors = (ast as ts.SourceFile & { parseDiagnostics: ts.DiagnosticWithLocation[] }).parseDiagnostics;
   if (errors.length) return { nodes: [], diagnostics: errors.map(e => issue(source, 'source-syntax', ts.flattenDiagnosticMessageText(e.messageText, '\n'), e.start)) };
   const comments = new Map<number, Span>();

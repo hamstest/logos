@@ -7,7 +7,7 @@ export const rootSchema = z.object({ id: z.string().min(1), path: z.string(), sc
 export const projectSchema = z.object({ id: z.string().regex(/^project\/[^\s]+$/), path: z.string(), title: z.string(), sources: z.array(z.string()).default(['.']) });
 export const runnerSchema = z.object({ id: z.string(), command: z.string(), args: z.array(z.string()).default([]), description: z.string().default(''), timeoutMs: z.number().int().positive().default(300000) });
 const configSchema = z.object({
-  roots: z.array(rootSchema).default([]),
+  roots: z.array(rootSchema).default([]), disabledExtensions: z.array(z.string()).default([]),
   plugins: z.array(z.object({ module: z.string(), enabled: z.boolean().default(true), options: z.unknown().optional() })).default([]),
   contextFilters: z.array(z.string()).default([]), runners: z.array(runnerSchema).default([]),
 });

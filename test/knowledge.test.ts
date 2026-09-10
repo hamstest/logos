@@ -1,4 +1,4 @@
-﻿import { test } from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readMarkdown } from '../src/knowledge/markdown.js';
 import { readTypeScript } from '../src/knowledge/typescript.js';
@@ -61,4 +61,11 @@ test('Project isolation, duplicate IDs, unresolved links and cycles remain visib
   assert.ok(g.context({ concepts: ['cycle'] }).incomplete);
   assert.ok(g.problems().some(d => d.code === 'hierarchy-cycle'));
   assert.ok(g.problems().some(d => d.code === 'unresolved-reference'));
+});
+
+test('BOM originals preserve source offsets and their first annotation', () => {
+  const md = '\uFEFF' + mark('bom') + '# Heading\n';
+  const read = readMarkdown(source(md)); assert.equal(read.nodes[0].id, 'bom'); assert.equal(md.slice(read.nodes[0].origin.content.start).trim(), '# Heading');
+  const ts = '\uFEFF#!/usr/bin/env node\n' + code('bom-ts') + 'function main() {}';
+  const result = readTypeScript(source(ts, 'cli.ts')); assert.deepEqual(result.diagnostics, []); assert.equal(result.nodes[0].content, 'function main() {}');
 });

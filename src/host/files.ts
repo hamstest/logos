@@ -9,7 +9,7 @@ export async function textOrNull(file: string): Promise<string | null> {
 }
 export async function readJson<T>(file: string, fallback: T): Promise<T> {
   const text = await textOrNull(file);
-  return text === null ? fallback : JSON.parse(text) as T;
+  return text === null ? fallback : JSON.parse(text.replace(/^\uFEFF/, '')) as T;
 }
 export async function containedPath(base: string, relative: string): Promise<string> {
   const root = path.resolve(base);
