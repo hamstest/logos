@@ -43,16 +43,16 @@ export const knowledge: Extension = {
       const graph = await graphFor(host), node = graph.get(id, ctx.project);
       if (!node) {
         if (graph.nodes.has(id)) return { id, status: 'unavailable', trashIds: [] };
-        const deleted = (await trashList(host.workspace)).filter(r => r.state !== 'restored' && r.ids.includes(id));
+        const deleted = (await trashList(host.workspace)).filter(r => r.state === 'deleted' && r.ids.includes(id));
         return { id, status: deleted.length ? 'deleted' : 'unavailable', trashIds: deleted.map(r => r.id) };
       }
-      return { ...node, status: 'available', operations: host.describe().operations.filter(op => op.implementationId === id), relations: graph.related(id, ctx.project) };
+      return { ...node, status: 'available', operations: host.describe().operations.filter(op => op.implementationId === id), relations: await withDeletionStatus(host, graph.related(id, ctx.project)) };
     }});
     host.register({ name: 'knowledge.search', description: 'Search scoped names and text; use context for inherited criteria.', input: z.object({ query: z.string(), ...page }), output: z.object({ items: z.array(summarySchema.extend({ score: z.number() })), total: z.number(), diagnostics: z.array(diagnosticSchema) }), async handler(input, ctx) {
       const graph = await graphFor(host), matches = graph.search(input.query, ctx.project);
       return { items: matches.slice(input.offset, input.offset + input.limit).map(({ node, score }) => ({ ...brief(node, host), score })), total: matches.length, diagnostics: graph.problems(ctx.project) };
     }});
-    host.register({ name: 'knowledge.related', description: 'Traverse incoming and outgoing relations.', input: idInput.extend({ direction: z.enum(['in', 'out', 'both']).default('both'), relation: z.string().optional() }), output: z.array(edgeSchema), async handler(i, ctx) { return (await graphFor(host)).related(i.id, ctx.project, i.direction, i.relation); }});
+    host.register({ name: 'knowledge.related', description: 'Traverse incoming and outgoing relations.', input: idInput.extend({ direction: z.enum(['in', 'out', 'both']).default('both'), relation: z.string().optional() }), output: z.array(edgeSchema), async handler(i, ctx) { return withDeletionStatus(host, (await graphFor(host)).related(i.id, ctx.project, i.direction, i.relation)); }});
     host.register({ name: 'knowledge.context', description: 'Collect criteria through all concept parents, then references; return reasons and pagination.', implementationId: 'implementation/knowledge-graph', input: z.object({ query: z.string().default(''), concepts: z.array(z.string()).default([]), situation: z.record(z.string(), z.unknown()).default({}), ...page }), output: contextSchema, async handler(i, ctx) {
       const result = (await graphFor(host)).context({ ...i, project: ctx.project });
       const judgments = [];
@@ -114,3 +114,8 @@ export const knowledge: Extension = {
     }});
   },
 };
+
+async function withDeletionStatus(host: Host, edges: ReturnType<KnowledgeGraph['related']>) {
+  const deleted = new Set((await trashList(host.workspace)).filter(r => r.state === 'deleted').flatMap(r => r.ids));
+  return edges.map(edge => ({ ...edge, targetStatus: edge.targetStatus === 'unresolved' && deleted.has(edge.target) ? 'deleted' as const : edge.targetStatus }));
+}

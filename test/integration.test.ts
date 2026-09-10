@@ -185,3 +185,12 @@ test('CLI exposes live schemas, accepts JSON input and fails visibly on unavaila
   assert.equal(task.objective, 'Unicode task: 確認');
   await assert.rejects(exec(process.execPath, [cli, '--workspace', dir, 'call', 'missing', '{}']), (error: any) => error.code === 1 && JSON.parse(error.stderr).error.includes('Unknown'));
 });
+
+test('Remaining links distinguish a deleted target from an unknown reference', async t => {
+  const { dir, host } = await fixture(t);
+  const original = mark('target') + '# Target'; await fs.writeFile(path.join(dir, 'knowledge/target.md'), original);
+  await fs.writeFile(path.join(dir, 'knowledge/referrer.md'), mark('referrer', 'links: [{relation: depends_on, target: target}]') + '# Referrer');
+  await host.call('knowledge.delete', { id: 'target', expectedHash: hash(original) });
+  assert.equal((await host.call('knowledge.related', { id: 'referrer' }))[0].targetStatus, 'deleted');
+  assert.equal((await host.call('knowledge.get', { id: 'referrer' })).relations[0].targetStatus, 'deleted');
+});
