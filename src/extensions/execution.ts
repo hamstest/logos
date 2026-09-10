@@ -1,3 +1,5 @@
+import { runnerSchema } from '../config.js';
+import { taskResultSchema } from './tasks.js';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -19,8 +21,9 @@ export async function runProcess(runner: Runner, cwd: string, payload: unknown):
   return new Promise((resolve, reject) => {
     const child = spawn(runner.command, runner.args, { cwd, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout = '', stderr = '', bytes = 0, reason: string | undefined;
-    const timer = setTimeout(() => { reason = 'Execution timed out; external effects may have occurred'; child.kill(); }, runner.timeoutMs);
-    child.stdout.on('data', chunk => { bytes += Buffer.byteLength(chunk); if (bytes > 2_000_000) { reason = 'Runner output exceeded 2 MB'; child.kill(); } else stdout += chunk; });
+    const stop = (message: string) => { reason = message; child.kill(); child.stdin.destroy(); child.stdout.destroy(); child.stderr.destroy(); clearTimeout(timer); reject(new Error(message)); };
+    const timer = setTimeout(() => stop('Execution timed out; external effects may have occurred'), runner.timeoutMs);
+    child.stdout.on('data', chunk => { bytes += Buffer.byteLength(chunk); if (bytes > 2_000_000) { stop('Runner output exceeded 2 MB; external effects may have occurred'); } else stdout += chunk; });
     child.stderr.on('data', chunk => { stderr = (stderr + chunk).slice(-16000); });
     child.stdin.on('error', () => {});
     child.on('error', error => { clearTimeout(timer); reject(error); });
@@ -33,12 +36,23 @@ export async function runProcess(runner: Runner, cwd: string, payload: unknown):
     child.stdin.end(JSON.stringify(payload) + '\n');
   });
 }
+/* @logos
+format: 1
+id: implementation/execution-extension
+kind: implementation
+links:
+  - relation: implements
+    target: criterion/explicit-execution
+  - relation: depends_on
+    target: implementation/host
+*/
 export const execution: Extension = {
+  implementationId: 'implementation/execution-extension',
   id: 'execution', description: 'Delegate tasks through a configured JSON process adapter; preserve attempts before launching.', requires: ['knowledge', 'tasks'],
   setup(host) {
-    const output = z.unknown();
-    host.register({ name: 'execution.runners', description: 'List explicitly configured process adapters.', input: z.object({}), output, async handler() { return (await configuration(host.workspace)).runners; }});
-    host.register({ name: 'execution.run', description: 'Delegate once in the task project directory. Interrupted or invalid responses require reconciliation, never automatic retry.', implementationId: 'implementation/run-process', input: z.object({ taskId: z.string(), runnerId: z.string(), concepts: z.array(z.string()).default([]), situation: z.record(z.string(), z.unknown()).default({}) }), output, async handler(i, ctx) {
+
+    host.register({ name: 'execution.runners', description: 'List explicitly configured process adapters.', input: z.object({}), output: z.array(runnerSchema), async handler() { return (await configuration(host.workspace)).runners; }});
+    host.register({ name: 'execution.run', description: 'Delegate once in the task project directory. Interrupted or invalid responses require reconciliation, never automatic retry.', implementationId: 'implementation/run-process', input: z.object({ taskId: z.string(), runnerId: z.string(), concepts: z.array(z.string()).default([]), situation: z.record(z.string(), z.unknown()).default({}) }), output: z.object({ attempt: attemptSchema, task: taskResultSchema }), async handler(i, ctx) {
       const task = await readTask(host, i.taskId, ctx.project);
       if (task.activeAttempt) throw new Error('Previous attempt is unresolved; inspect and reconcile it before retrying');
       if (['completed', 'cancelled'].includes(task.status)) throw new Error('Reopen the task explicitly before executing again');
@@ -67,11 +81,11 @@ export const execution: Extension = {
         return { attempt, task: await readTask(host, task.id) };
       }
     }});
-    host.register({ name: 'execution.inspect', description: 'Inspect an attempt. Persisted running state after interruption does not prove that a process is still alive.', input: z.object({ attemptId: z.string().uuid() }), output, async handler(i, ctx) {
+    host.register({ name: 'execution.inspect', description: 'Inspect an attempt. Persisted running state after interruption does not prove that a process is still alive.', input: z.object({ attemptId: z.string().uuid() }), output: attemptSchema, async handler(i, ctx) {
       const attempt: any = await readJson(path.join(host.workspace, '.logos/attempts', i.attemptId + '.json'), null); if (!attempt) throw new Error('Attempt not found');
       await readTask(host, attempt.taskId, ctx.project); return attempt;
     }});
-    host.register({ name: 'execution.reconcile', description: 'Manually record an observed outcome after confirming the runner has stopped; release the attempt for explicit retry.', input: z.object({ taskId: z.string(), attemptId: z.string().uuid(), status: z.enum(['completed', 'failed', 'waiting', 'cancelled']), summary: z.string().min(1), runnerStopped: z.literal(true) }), output, async handler(i, ctx) {
+    host.register({ name: 'execution.reconcile', description: 'Manually record an observed outcome after confirming the runner has stopped; release the attempt for explicit retry.', input: z.object({ taskId: z.string(), attemptId: z.string().uuid(), status: z.enum(['completed', 'failed', 'waiting', 'cancelled']), summary: z.string().min(1), runnerStopped: z.literal(true) }), output: taskResultSchema, async handler(i, ctx) {
       const task = await readTask(host, i.taskId, ctx.project);
       if (task.activeAttempt !== i.attemptId) throw new Error('This is not the active attempt');
       const file = path.join(host.workspace, '.logos/attempts', i.attemptId + '.json');
@@ -80,7 +94,7 @@ export const execution: Extension = {
       const { activeAttempt, ...rest } = task;
       return saveTask(host, { ...rest, status: i.status, result: i.summary }, task.revision);
     }});
-    host.register({ name: 'execution.evaluate', description: 'Call a registered criterion implementation and append its reported evidence to a task.', input: z.object({ taskId: z.string(), operation: z.string(), input: z.unknown() }), output, async handler(i, ctx) {
+    host.register({ name: 'execution.evaluate', description: 'Call a registered criterion implementation and append its reported evidence to a task.', input: z.object({ taskId: z.string(), operation: z.string(), input: z.unknown() }), output: taskResultSchema, async handler(i, ctx) {
       const task = await readTask(host, i.taskId, ctx.project); if (task.activeAttempt) throw new Error('Resolve active execution before evaluation');
       if (i.operation.startsWith('execution.')) throw new Error('Select a criterion operation');
       const definition = host.describe().operations.find(op => op.name === i.operation); if (!definition) throw new Error('Unknown evaluation operation');
@@ -90,3 +104,5 @@ export const execution: Extension = {
     }});
   },
 };
+
+const attemptSchema = z.object({ id: z.string(), taskId: z.string(), runnerId: z.string(), state: z.enum(['prepared', 'running', 'completed', 'failed', 'waiting', 'cancelled', 'unknown']), startedAt: z.string(), context: z.unknown(), result: responseSchema.optional(), error: z.string().optional(), reconciliation: z.object({ summary: z.string(), observedAt: z.string() }).optional() });

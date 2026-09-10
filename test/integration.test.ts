@@ -1,3 +1,16 @@
+/* @logos
+format: 1
+id: verification/workflow
+kind: verification
+attach: file
+links:
+  - relation: verifies
+    target: criterion/recoverable-changes
+  - relation: verifies
+    target: criterion/explicit-execution
+  - relation: verifies
+    target: criterion/registered-capabilities
+*/
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
@@ -121,4 +134,54 @@ test('Workspace configuration accepts UTF-8 BOM from PowerShell editors', async 
   const { dir } = await fixture(t);
   const file = path.join(dir, 'config/logos.json'); await fs.writeFile(file, '\uFEFF' + await fs.readFile(file, 'utf8'));
   assert.ok((await createHost(dir)).describe().operations.length > 0);
+});
+
+test('Transient replacement retries preserve concurrent-edit protection', async t => {
+  const { replaceChecked } = await import('../src/host/files.js');
+  const { dir } = await fixture(t), file = path.join(dir, 'original'), temp = path.join(dir, 'replacement');
+  await fs.writeFile(file, 'before'); await fs.writeFile(temp, 'after');
+  let tries = 0;
+  await replaceChecked(temp, file, hash('before'), async (from, to) => { if (tries++ === 0) throw Object.assign(new Error('temporary lock'), { code: 'EPERM' }); await fs.rename(from, to); });
+  assert.equal(await fs.readFile(file, 'utf8'), 'after'); assert.equal(tries, 2);
+  await fs.writeFile(temp, 'unsafe');
+  await assert.rejects(replaceChecked(temp, file, hash('after'), async () => { await fs.writeFile(file, 'concurrent'); throw Object.assign(new Error('temporary lock'), { code: 'EPERM' }); }), /conflict/);
+  assert.equal(await fs.readFile(file, 'utf8'), 'concurrent'); assert.equal(await fs.readFile(temp, 'utf8'), 'unsafe');
+});
+
+test('Timed-out process attempts return unknown and do not auto-retry', async t => {
+  const { dir, config, saveConfig } = await fixture(t);
+  config.runners.push({ id: 'slow', command: process.execPath, args: ['-e', 'setTimeout(() => {}, 10000)'], timeoutMs: 100 }); await saveConfig();
+  const host = await createHost(dir), task = await host.call('task.create', { objective: 'Timeout example' });
+  const result = await host.call('execution.run', { taskId: task.id, runnerId: 'slow' });
+  assert.equal(result.attempt.state, 'unknown'); assert.match(result.attempt.error, /timed out/);
+  await assert.rejects(host.call('execution.run', { taskId: task.id, runnerId: 'slow' }), /unresolved/);
+});
+
+test('A note-only task update preserves completion and existing checks', async t => {
+  const { host } = await fixture(t);
+  const task = await host.call('task.create', { objective: 'Keep prior result' });
+  const done = await host.call('task.update', { id: task.id, expectedHash: task.revision, status: 'completed', checks: [{ description: 'Verified', outcome: 'passed' }] });
+  const noted = await host.call('task.update', { id: task.id, expectedHash: done.revision, note: 'A later observation' });
+  assert.equal(noted.status, 'completed'); assert.equal(noted.verification, 'passed'); assert.equal(noted.checks.length, 1);
+});
+
+test('Overlapping source roots produce a visible configuration problem', async t => {
+  const { dir, config, saveConfig } = await fixture(t);
+  await fs.writeFile(path.join(dir, 'knowledge/a.md'), mark('a') + '# A');
+  config.roots.push({ id: 'duplicate', path: '.', scope: 'project/logos', include: ['knowledge'] }); await saveConfig();
+  const host = await createHost(dir);
+  assert.ok((await host.call('knowledge.diagnostics', {}, { project: 'project/logos' })).some((d: any) => d.code === 'overlapping-root'));
+});
+
+test('CLI exposes live schemas, accepts JSON input and fails visibly on unavailable operations', async t => {
+  const { dir } = await fixture(t);
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util'); const exec = promisify(execFile);
+  const cli = path.resolve('dist/src/cli.js');
+  const listing = JSON.parse((await exec(process.execPath, [cli, '--workspace', dir, 'operations'])).stdout);
+  assert.ok(listing.operations.find((o: any) => o.name === 'task.get').output.properties.revision);
+  assert.ok(listing.operations.find((o: any) => o.name === 'knowledge.context').output.properties.nextOffset);
+  const task = JSON.parse((await exec(process.execPath, [cli, '--workspace', dir, 'call', 'task.create', JSON.stringify({ objective: 'Unicode task: 確認' })])).stdout);
+  assert.equal(task.objective, 'Unicode task: 確認');
+  await assert.rejects(exec(process.execPath, [cli, '--workspace', dir, 'call', 'missing', '{}']), (error: any) => error.code === 1 && JSON.parse(error.stderr).error.includes('Unknown'));
 });

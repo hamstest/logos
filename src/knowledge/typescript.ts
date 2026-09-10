@@ -17,7 +17,7 @@ export function readTypeScript(source: SourceInput): ReadResult {
   const comments = new Map<number, Span>();
   const targets: { span: Span; name: string; kind: string }[] = [];
   function visit(node: ts.Node) {
-    for (const range of [...(ts.getLeadingCommentRanges(source.text, node.pos) ?? []), ...(ts.getTrailingCommentRanges(source.text, node.end) ?? [])]) {
+    for (const range of [...(ts.getLeadingCommentRanges(ast.text, node.pos) ?? []), ...(ts.getTrailingCommentRanges(ast.text, node.end) ?? [])]) {
       comments.set(range.pos, { start: range.pos, end: range.end });
     }
     const supported = ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node) || ts.isMethodDeclaration(node)

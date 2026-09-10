@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { atomicWrite, containedPath, readJson, textOrNull, writeJson } from './files.js';
 import { hash } from '../knowledge/model.js';
-const recordSchema = z.object({ id: z.string().uuid(), root: z.string(), relative: z.string(), ids: z.array(z.string()), start: z.number().int().nonnegative(), fragment: z.string(), beforeHash: z.string(), afterHash: z.string(), state: z.enum(['prepared', 'deleted', 'restored']), createdAt: z.string() });
+export const recordSchema = z.object({ id: z.string().uuid(), root: z.string(), relative: z.string(), ids: z.array(z.string()), start: z.number().int().nonnegative(), fragment: z.string(), beforeHash: z.string(), afterHash: z.string(), state: z.enum(['prepared', 'deleted', 'restored']), createdAt: z.string() });
 export type TrashRecord = z.infer<typeof recordSchema>;
 export async function trashList(workspace: string): Promise<TrashRecord[]> {
   const directory = path.join(workspace, '.logos/trash');

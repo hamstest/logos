@@ -1,3 +1,14 @@
+/* @logos
+format: 1
+id: verification/knowledge
+kind: verification
+attach: file
+links:
+  - relation: verifies
+    target: criterion/annotation-boundaries
+  - relation: verifies
+    target: criterion/semantic-context
+*/
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readMarkdown } from '../src/knowledge/markdown.js';

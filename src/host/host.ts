@@ -7,20 +7,29 @@ export interface Operation<I = any> {
   handler(input: I, context: CallContext): unknown | Promise<unknown>;
 }
 export interface Extension {
-  id: string; description: string; requires?: string[];
+  id: string; description: string; requires?: string[]; implementationId?: string;
   setup(host: Host, options?: unknown): void | Promise<void>;
 }
+/* @logos
+format: 1
+id: implementation/host
+kind: implementation
+links:
+  - relation: implements
+    target: criterion/registered-capabilities
+*/
 export class Host {
   readonly readers: Reader[] = [];
   readonly sources: (() => Promise<SourceInput[]>)[] = [];
   private operations = new Map<string, Operation & { extension: string }>();
-  private extensions = new Map<string, { id: string; description: string; requires: string[]; entry: string }>();
+  private extensions = new Map<string, { id: string; description: string; requires: string[]; entry: string; implementationId?: string }>();
   private owner = '';
+  private ownerImplementation: string | undefined;
   constructor(readonly workspace: string) {}
   register<I>(operation: Operation<I>) {
     if (!this.owner) throw new Error('Operations must be registered during extension setup');
     if (this.operations.has(operation.name)) throw new Error(`Duplicate operation: ${operation.name}`);
-    this.operations.set(operation.name, { ...operation, extension: this.owner });
+    this.operations.set(operation.name, { ...operation, implementationId: operation.implementationId ?? this.ownerImplementation, extension: this.owner });
   }
   addReader(reader: Reader) {
     if (this.readers.some(r => r.id === reader.id || r.extensions.some(ext => reader.extensions.includes(ext)))) throw new Error(`Conflicting reader: ${reader.id}`);
@@ -33,10 +42,10 @@ export class Host {
       const index = pending.findIndex(e => (e.extension.requires ?? []).every(id => this.extensions.has(id)));
       if (index < 0) throw new Error('Missing or cyclic extension dependencies: ' + pending.map(e => e.extension.id).join(', '));
       const item = pending.splice(index, 1)[0]; const ext = item.extension;
-      this.owner = ext.id;
+      this.owner = ext.id; this.ownerImplementation = ext.implementationId;
       try { await ext.setup(this, item.options); }
-      finally { this.owner = ''; }
-      this.extensions.set(ext.id, { id: ext.id, description: ext.description, requires: ext.requires ?? [], entry: item.entry });
+      finally { this.owner = ''; this.ownerImplementation = undefined; }
+      this.extensions.set(ext.id, { id: ext.id, description: ext.description, requires: ext.requires ?? [], entry: item.entry, implementationId: ext.implementationId });
     }
   }
   describe() {

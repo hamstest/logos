@@ -8,7 +8,7 @@ import type { ReadResult, Reader } from './model.js';
 const ignored = new Set(['.git', '.logos', 'node_modules', 'dist', '.npm-cache']);
 export async function loadGraph(roots: SourceRoot[], readers: Reader[]): Promise<KnowledgeGraph> {
   const results: ReadResult[] = [];
-  const seen = new Set<string>();
+  const seen = new Map<string, string>();
   for (const root of roots) {
     async function walk(file: string): Promise<void> {
       const stat = await fs.lstat(file);
@@ -19,8 +19,11 @@ export async function loadGraph(roots: SourceRoot[], readers: Reader[]): Promise
       }
       if (!stat.isFile()) return;
       const canonical = await fs.realpath(file);
-      if (seen.has(canonical)) return;
-      seen.add(canonical);
+      if (seen.has(canonical)) {
+        if (seen.get(canonical) !== root.id) results.push({ nodes: [], diagnostics: [{ code: 'overlapping-root', message: 'File is already registered under root ' + seen.get(canonical), rootId: root.id, path: path.relative(root.path, file), scope: root.scope }] });
+        return;
+      }
+      seen.set(canonical, root.id);
       const reader = readers.find(r => r.extensions.includes(path.extname(file).toLowerCase()));
       if (!reader) return;
       const text = await fs.readFile(file, 'utf8');

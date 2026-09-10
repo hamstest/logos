@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { hash } from '../knowledge/model.js';
 
 export async function textOrNull(file: string): Promise<string | null> {
@@ -53,7 +54,7 @@ export async function atomicWrite(file: string, content: string, expected: strin
     if (expected === null) {
       await fs.link(temporary, file); // Exclusive publication: never replace an existing file on creation.
       await fs.unlink(temporary);
-    } else await fs.rename(temporary, file);
+    } else await replaceChecked(temporary, file, expected);
   } finally {
     await fs.rm(temporary, { force: true });
     await lock.close();
@@ -63,4 +64,17 @@ export async function atomicWrite(file: string, content: string, expected: strin
 export async function writeJson(file: string, value: unknown, expected?: string | null) {
   const before = await textOrNull(file);
   await atomicWrite(file, JSON.stringify(value, null, 2) + '\n', expected === undefined ? (before === null ? null : hash(before)) : expected);
+}
+
+// Windows indexers may briefly hold the destination. Recheck the original before every retry.
+export async function replaceChecked(temporary: string, file: string, expected: string, rename = fs.rename) {
+  for (let attempt = 0; ; attempt++) {
+    const current = await textOrNull(file);
+    if (current === null || hash(current) !== expected) throw new Error('Edit conflict: original changed before replacement');
+    try { await rename(temporary, file); return; }
+    catch (error) {
+      if (!['EPERM', 'EBUSY', 'EACCES'].includes((error as NodeJS.ErrnoException).code ?? '') || attempt >= 7) throw error;
+      await delay(20 * 2 ** attempt);
+    }
+  }
 }
