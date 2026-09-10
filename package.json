@@ -1,0 +1,28 @@
+{
+  "name": "logos-local",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local knowledge and agent foundation connecting Markdown and source code",
+  "bin": {
+    "logos": "dist/src/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "logos": "node dist/src/cli.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "markdown-it": "15.0.1",
+    "typescript": "5.9.3",
+    "yaml": "2.9.0",
+    "zod": "4.6.1"
+  },
+  "devDependencies": {
+    "@types/markdown-it": "14.2.0",
+    "@types/node": "22.20.2"
+  }
+}
