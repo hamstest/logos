@@ -24,16 +24,7 @@ export async function graphFor(host: Host) {
   return new KnowledgeGraph([{ nodes: [...graph.nodes.values()], diagnostics: graph.diagnostics.filter(d => !['unresolved-reference', 'hierarchy-cycle'].includes(d.code)) }, ...extra]);
 }
 const brief = (n: KnowledgeNode, host: Host) => ({ id: n.id, kind: n.kind, title: n.title, scope: n.scope, summary: n.content.slice(0, 500), origin: n.origin, operations: host.describe().operations.filter(op => op.implementationId === n.id).map(op => op.name) });
-/* @logos
-format: 1
-id: implementation/knowledge-extension
-kind: implementation
-links:
-  - relation: implements
-    target: criterion/semantic-context
-  - relation: depends_on
-    target: implementation/host
-*/
+// @logos-id implementation/knowledge-extension
 export const knowledge: Extension = {
   implementationId: 'implementation/knowledge-extension',
   id: 'knowledge', description: 'Read annotated originals, select relevant knowledge, and preserve managed edits.',
@@ -67,6 +58,7 @@ export const knowledge: Extension = {
       const data = annotation(stringify(i.annotation));
       const roots = await sourceRoots(host.workspace, await configuration(host.workspace));
       const root = roots.find(r => r.id === i.rootId); if (!root) throw new Error('Unknown root');
+      if (root.role !== 'knowledge') throw new Error('Save knowledge in Logos using the project /knowledge root; source roots are read-only');
       if (root.scope !== 'shared' && root.scope !== ctx.project) throw new Error('Select the target project first');
       if ((data.scope ?? root.scope) !== root.scope) throw new Error('Annotation scope must match the creation root');
       if (!/\.md$/i.test(i.path)) throw new Error('Managed knowledge creation requires Markdown');
@@ -84,6 +76,7 @@ export const knowledge: Extension = {
       if (!node || node.origin.language !== 'markdown') throw new Error('Only available Markdown originals can be edited with this operation');
       const root = (await sourceRoots(host.workspace, await configuration(host.workspace))).find(r => r.id === node.origin.rootId);
       if (!root) throw new Error('Generated records must be changed through their own operations');
+      if (root.role !== 'knowledge') throw new Error('Source roots are read-only');
       if (graph.diagnostics.some(d => d.rootId === node.origin.rootId && d.path === node.origin.path && ['duplicate-id', 'invalid-annotation', 'ambiguous-target'].includes(d.code))) throw new Error('Fix ambiguous or invalid annotations before managed edits');
       const file = await containedPath(root.path, node.origin.path); const text = await textOrNull(file);
       if (text === null || hash(text) !== node.origin.hash) throw new Error('Original changed; reread');

@@ -1,17 +1,4 @@
-/* @logos
-format: 1
-id: verification/workflow
-kind: verification
-attach: file
-links:
-  - relation: verifies
-    target: criterion/recoverable-changes
-  - relation: verifies
-    target: criterion/explicit-execution
-  - relation: verifies
-    target: criterion/registered-capabilities
-*/
-import { test } from 'node:test';
+import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
@@ -26,24 +13,26 @@ const mark = (id: string, extra = '') => '```logos\nformat: 1\nid: ' + id + '\nk
 async function fixture(t: { after(fn: () => Promise<void>): void }) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'logos-test-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
-  await fs.mkdir(path.join(dir, 'config')); await fs.mkdir(path.join(dir, 'knowledge'));
-  const config = { roots: [{ id: 'shared', path: '.', scope: 'shared', include: ['knowledge'] }], plugins: [] as any[], runners: [] as any[], contextFilters: [] as string[] };
+  await fs.mkdir(path.join(dir, 'config')); await fs.mkdir(path.join(dir, 'knowledge/shared'), { recursive: true });
+  const config = { roots: [{ id: 'shared', path: '.', scope: 'shared', include: ['knowledge/shared'] }], plugins: [] as any[], runners: [] as any[], contextFilters: [] as string[] };
   const saveConfig = () => fs.writeFile(path.join(dir, 'config/logos.json'), JSON.stringify(config));
   await saveConfig(); return { dir, config, saveConfig, host: await createHost(dir) };
 }
+// @logos-id verification/workflow
+describe('verification/workflow', () => {
 test('Managed chapter deletion is exact, recoverable, non-cascading and conflict-aware', async t => {
   const { dir, host } = await fixture(t);
   const text = mark('a') + '# A\nText\n' + mark('child') + '## Child\nBody\n' + mark('b') + '# B\nUntouched\n';
-  const file = path.join(dir, 'knowledge/test.md'); await fs.writeFile(file, text);
+  const file = path.join(dir, 'knowledge/shared/test.md'); await fs.writeFile(file, text);
   const preview = await host.call('knowledge.deletePreview', { id: 'a' });
   assert.deepEqual(preview.affectedIds, ['a', 'child']);
   await assert.rejects(host.call('knowledge.delete', { id: 'a', expectedHash: 'stale' }), /conflict/);
   const removed = await host.call('knowledge.delete', { id: 'a', expectedHash: preview.expectedHash });
   assert.equal(await fs.readFile(file, 'utf8'), mark('b') + '# B\nUntouched\n');
   assert.equal((await host.call('knowledge.get', { id: 'a' })).status, 'deleted');
-  await fs.writeFile(path.join(dir, 'knowledge/collision.md'), mark('a') + '# Collision');
+  await fs.writeFile(path.join(dir, 'knowledge/shared/collision.md'), mark('a') + '# Collision');
   await assert.rejects(host.call('trash.restore', { trashId: removed.id }), /ID is already/);
-  await fs.unlink(path.join(dir, 'knowledge/collision.md'));
+  await fs.unlink(path.join(dir, 'knowledge/shared/collision.md'));
   await fs.appendFile(file, 'Concurrent change');
   await assert.rejects(host.call('trash.restore', { trashId: removed.id }), /surrounding/);
   await fs.writeFile(file, mark('b') + '# B\nUntouched\n');
@@ -55,7 +44,7 @@ test('Managed chapter deletion is exact, recoverable, non-cascading and conflict
   await assert.rejects(host.call('knowledge.update', { id: 'a', expectedHash: edited.hash, body: '# A\nWould remove child' }), /lose/);
 });
 test('A failure after trash preparation preserves the original and recovery data', async t => {
-  const { dir, host } = await fixture(t); const file = path.join(dir, 'knowledge/a.md'), text = mark('a') + '# A\n';
+  const { dir, host } = await fixture(t); const file = path.join(dir, 'knowledge/shared/a.md'), text = mark('a') + '# A\n';
   await fs.writeFile(file, text); await fs.writeFile(file + '.logos-lock', 'simulate interrupted writer');
   await assert.rejects(host.call('knowledge.delete', { id: 'a', expectedHash: hash(text) }), /writer/);
   assert.equal(await fs.readFile(file, 'utf8'), text);
@@ -86,12 +75,12 @@ test('Plugin registry exposes the same validated operations it dispatches, inclu
 });
 test('Direct work, learning, project isolation and task deletion/restoration form a complete flow', async t => {
   const { dir, host } = await fixture(t); const project = path.join(dir, 'project'); await fs.mkdir(project);
-  await fs.writeFile(path.join(dir, 'knowledge/concept.md'), mark('concept/topic') + '# Topic');
+  await fs.writeFile(path.join(dir, 'knowledge/shared/concept.md'), mark('concept/topic') + '# Topic');
   await host.call('project.connect', { id: 'project/demo', title: 'Demo', path: project, sources: ['.'] });
   const task = await host.call('task.create', { objective: 'Fix a repeated mistake', project: 'project/demo' });
   const done = await host.call('task.update', { id: task.id, expectedHash: task.revision, status: 'completed', note: 'Correction observed', result: 'Changed the procedure' });
   assert.equal(done.verification, 'unverified');
-  await host.call('improvement.learn', { taskId: task.id, rootId: 'project/demo/source', path: 'lesson.md', id: 'guidance/lesson', title: 'Lesson', body: 'Check the input before proceeding.', concepts: ['concept/topic'], scope: 'project/demo' });
+  await host.call('improvement.learn', { taskId: task.id, rootId: 'project/demo/knowledge', path: 'lesson.md', id: 'guidance/lesson', title: 'Lesson', body: 'Check the input before proceeding.', concepts: ['concept/topic'], scope: 'project/demo' });
   const context = await host.call('knowledge.context', { concepts: ['concept/topic'] }, { project: 'project/demo' });
   assert.ok(context.items.some((n: any) => n.id === 'guidance/lesson' && n.category === 'applicable'));
   assert.ok(!(await host.call('knowledge.context', { concepts: ['concept/topic'] })).items.some((n: any) => n.id === 'guidance/lesson'));
@@ -101,7 +90,8 @@ test('Direct work, learning, project isolation and task deletion/restoration for
   await host.call('trash.restore', { trashId: removed.id });
   assert.equal((await host.call('task.get', { id: task.id })).result, done.result);
   await host.call('project.disconnect', { id: 'project/demo' });
-  assert.ok(await fs.stat(path.join(project, 'lesson.md')));
+  assert.ok(await fs.stat(path.join(dir, 'knowledge/projects/project%2Fdemo/lesson.md')));
+  assert.deepEqual(await fs.readdir(project), []);
 });
 test('Process delegation records real results and requires reconciliation after invalid output', async t => {
   const { dir, host: initial, config, saveConfig } = await fixture(t);
@@ -167,8 +157,8 @@ test('A note-only task update preserves completion and existing checks', async t
 
 test('Overlapping source roots produce a visible configuration problem', async t => {
   const { dir, config, saveConfig } = await fixture(t);
-  await fs.writeFile(path.join(dir, 'knowledge/a.md'), mark('a') + '# A');
-  config.roots.push({ id: 'duplicate', path: '.', scope: 'project/logos', include: ['knowledge'] }); await saveConfig();
+  await fs.writeFile(path.join(dir, 'knowledge/shared/a.md'), mark('a') + '# A');
+  config.roots.push({ id: 'duplicate', path: '.', scope: 'project/logos', include: ['knowledge/shared'] }); await saveConfig();
   const host = await createHost(dir);
   assert.ok((await host.call('knowledge.diagnostics', {}, { project: 'project/logos' })).some((d: any) => d.code === 'overlapping-root'));
 });
@@ -188,9 +178,11 @@ test('CLI exposes live schemas, accepts JSON input and fails visibly on unavaila
 
 test('Remaining links distinguish a deleted target from an unknown reference', async t => {
   const { dir, host } = await fixture(t);
-  const original = mark('target') + '# Target'; await fs.writeFile(path.join(dir, 'knowledge/target.md'), original);
-  await fs.writeFile(path.join(dir, 'knowledge/referrer.md'), mark('referrer', 'links: [{relation: depends_on, target: target}]') + '# Referrer');
+  const original = mark('target') + '# Target'; await fs.writeFile(path.join(dir, 'knowledge/shared/target.md'), original);
+  await fs.writeFile(path.join(dir, 'knowledge/shared/referrer.md'), mark('referrer', 'links: [{relation: depends_on, target: target}]') + '# Referrer');
   await host.call('knowledge.delete', { id: 'target', expectedHash: hash(original) });
   assert.equal((await host.call('knowledge.related', { id: 'referrer' }))[0].targetStatus, 'deleted');
   assert.equal((await host.call('knowledge.get', { id: 'referrer' })).relations[0].targetStatus, 'deleted');
+});
+
 });

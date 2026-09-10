@@ -1,11 +1,44 @@
 {
   "roots": [
-    { "id": "shared", "path": ".", "scope": "shared", "include": ["knowledge"] },
-    { "id": "self", "path": ".", "scope": "project/logos", "include": ["src", "test", "examples/quality.ts"] }
+    {
+      "id": "shared",
+      "path": ".",
+      "scope": "shared",
+      "include": [
+        "knowledge/shared"
+      ],
+      "role": "knowledge"
+    },
+    {
+      "id": "self",
+      "path": ".",
+      "scope": "project/logos",
+      "include": [
+        "src",
+        "test",
+        "examples/quality.ts"
+      ],
+      "role": "source"
+    }
   ],
-  "plugins": [{ "module": "dist/examples/quality.js", "enabled": true }],
-  "contextFilters": ["quality.applicability"],
+  "plugins": [
+    {
+      "module": "dist/examples/quality.js",
+      "enabled": true
+    }
+  ],
+  "contextFilters": [
+    "quality.applicability"
+  ],
   "runners": [
-    { "id": "local-inventory", "command": "node", "args": ["${workspace}/examples/inventory-runner.mjs"], "description": "Read-only project file inventory example (not an autonomous agent)", "timeoutMs": 30000 }
+    {
+      "id": "local-inventory",
+      "command": "node",
+      "args": [
+        "${workspace}/examples/inventory-runner.mjs"
+      ],
+      "description": "Read-only project file inventory example (not an autonomous agent)",
+      "timeoutMs": 30000
+    }
   ]
 }

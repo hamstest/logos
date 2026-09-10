@@ -9,14 +9,7 @@ import { readJson, writeJson } from '../host/files.js';
 import type { Extension } from '../host/host.js';
 import { readTask, saveTask } from './tasks.js';
 const responseSchema = z.object({ status: z.enum(['completed', 'failed', 'waiting']), summary: z.string(), artifacts: z.array(z.string()).default([]), checks: z.array(z.object({ description: z.string(), outcome: z.enum(['passed', 'failed', 'unverified']), evidence: z.unknown().optional() })).default([]) });
-/* @logos
-format: 1
-id: implementation/run-process
-kind: implementation
-links:
-  - relation: implements
-    target: criterion/explicit-execution
-*/
+// @logos-id implementation/run-process
 export async function runProcess(runner: Runner, cwd: string, payload: unknown): Promise<z.infer<typeof responseSchema>> {
   return new Promise((resolve, reject) => {
     const child = spawn(runner.command, runner.args, { cwd, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -36,16 +29,7 @@ export async function runProcess(runner: Runner, cwd: string, payload: unknown):
     child.stdin.end(JSON.stringify(payload) + '\n');
   });
 }
-/* @logos
-format: 1
-id: implementation/execution-extension
-kind: implementation
-links:
-  - relation: implements
-    target: criterion/explicit-execution
-  - relation: depends_on
-    target: implementation/host
-*/
+// @logos-id implementation/execution-extension
 export const execution: Extension = {
   implementationId: 'implementation/execution-extension',
   id: 'execution', description: 'Delegate tasks through a configured JSON process adapter; preserve attempts before launching.', requires: ['knowledge', 'tasks'],

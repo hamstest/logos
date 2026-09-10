@@ -32,22 +32,30 @@ Logos自身の実装を調べるときは `--project project/logos` を使う。
 `project.connect` に既存フォルダを渡す。例のパスは実際の対象へ変更する。
 
 ```json
-{"id":"project/sample","title":"Sample","path":"C:/develop/sample","sources":["docs","src"]}
+{"id":"project/sample","title":"Sample","path":"C:/develop/sample","sources":["src"]}
 ```
 
-ファイルをLogosへコピーせず、その場所から読む。以降は `--project project/sample` を付ける。固有の知識と共有知識を併せて取得し、他プロジェクトの固有知識を混ぜない。`project.list` で接続先を確認する。`project.disconnect` は `{"id":"project/sample"}` で接続だけを外し、原本や履歴を削除しない。
+ソースをLogosへコピーせず、その場所からIDとコードを読む。知識のMDはLogos内で管理し、接続先リポジトリのMarkdownは索引化しない。以降は `--project project/sample` を付ける。固有の知識と共有知識を併せて取得し、他プロジェクトの固有知識を混ぜない。`project.list` で接続先を確認する。`project.disconnect` は `{"id":"project/sample"}` で接続だけを外し、原本や履歴を削除しない。
 
-`config/logos.json` の `roots` は共有する読込設定、`.logos/local/projects.json` はローカルの接続先。`include` / `sources` はフォルダ・ファイルの相対パスで、globではない。同じファイルを異なるルートで二重登録すると診断が出る。
+`config/logos.json` の `roots` は共有する読込設定。`role: knowledge` はLogos内のMarkdown、`role: source` はソースを読む。知識ルートをLogosの外には指定できない。`.logos/local/projects.json` はローカルの接続先。`include` / `sources` はフォルダ・ファイルの相対パスで、globではない。同じファイルを異なるルートで二重登録すると診断が出る。
+
+## MDからソースへ接地する
+
+対象の直前へ短いIDコメントを置く。例えば `// @logos-id implementation/refund`。ソースには関係やプロジェクト範囲を書かない。
+
+Logos側のMDの `links` に `{relation: implemented_by, target: implementation/refund}` を追加する。ソースIDを `knowledge.related` で問い合わせれば、そのIDに言及するMDを逆引きできる。テストのIDへの参照には `verified_by` を使える。IDは接続する全プロジェクトで重複しない名前にする。
+
+旧方式のソースコメントは、関係をMDへ移してから同じIDの1行コメントへ置き換える。旧ブロックの残存は診断として表示する。既存の他プロジェクトのMDは勝手に移動せず、必要な知識をLogos内の保存先へ移す。今回の同梱デモのMDは移行済み。
 
 ## 知識の追加と修正
 
 文章と注釈は通常のエディターで編集できる。管理操作で新しい文章を作る場合は `knowledge.create` を使う。
 
 ```json
-{"rootId":"shared","path":"knowledge/example.md","annotation":{"format":1,"id":"guidance/example","kind":"guidance","links":[{"relation":"applies_to","target":"concept/logos-change"}]},"body":"# 変更時の確認\n\n変更対象に対応するテストを実行する。"}
+{"rootId":"shared","path":"knowledge/shared/example.md","annotation":{"format":1,"id":"guidance/example","kind":"guidance","links":[{"relation":"applies_to","target":"concept/logos-change"}]},"body":"# 変更時の確認\n\n変更対象に対応するテストを実行する。"}
 ```
 
-接続プロジェクトのルートIDは `project/sample/source`。追加する場所は読込範囲内にする。初期の管理操作は新しいMarkdownファイルを作る。複数の章を持つ既存ファイルへ追加する場合は、[注釈仕様](../ONTOLOGY.md)に従って通常の編集を行う。
+接続プロジェクトの知識保存先IDは `project/sample/knowledge`。`path` はそこからの相対パスで、`example.md` などを指定する。実ファイルはLogos内の `knowledge/projects/project%2Fsample/` に保存する。ディレクトリ名はプロジェクトID全体をURLエンコードしたもので、接続先の場所や関数名に依存しない。`project/sample/source` はソース読取専用であり、知識を作成できない。接続を解除しても中央のMDを残し、同じIDで再接続すると再び読める。初期の管理操作は新しいMarkdownファイルを作る。複数の章を持つ既存ファイルへ追加する場合は、[注釈仕様](../ONTOLOGY.md)に従って通常の編集を行う。
 
 `knowledge.update` は `id`、取得した `origin.hash` を `expectedHash` として、見出しを含む新しい `body` を受け取る。注釈を含む子節を失う変更は拒否するので、子節だけの変更にはそのIDを指定する。親章の `get.content` には子節の注釈を含めないため、それをそのまま親章へ書き戻す用途には使わない。注釈自体やソースコードの編集は原本を通常の方法で変更し、次の取得で読み直す。
 

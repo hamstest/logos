@@ -28,14 +28,7 @@ export async function containedPath(base: string, relative: string): Promise<str
   return target;
 }
 
-/* @logos
-format: 1
-id: implementation/atomic-write
-kind: implementation
-links:
-  - relation: implements
-    target: criterion/recoverable-changes
-*/
+// @logos-id implementation/atomic-write
 export async function atomicWrite(file: string, content: string, expected: string | null): Promise<void> {
   await fs.mkdir(path.dirname(file), { recursive: true });
   const lockPath = `${file}.logos-lock`;

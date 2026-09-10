@@ -10,14 +10,7 @@ export interface Extension {
   id: string; description: string; requires?: string[]; implementationId?: string;
   setup(host: Host, options?: unknown): void | Promise<void>;
 }
-/* @logos
-format: 1
-id: implementation/host
-kind: implementation
-links:
-  - relation: implements
-    target: criterion/registered-capabilities
-*/
+// @logos-id implementation/host
 export class Host {
   readonly readers: Reader[] = [];
   readonly sources: (() => Promise<SourceInput[]>)[] = [];

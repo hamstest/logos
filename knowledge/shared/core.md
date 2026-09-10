@@ -65,7 +65,14 @@ format: 1
 id: concept/logos-change
 kind: concept
 title: Logosの変更
-aliases: [Logos, annotation, 注釈, knowledge]
+aliases:
+  - Logos
+  - annotation
+  - 注釈
+  - knowledge
+links:
+  - relation: implemented_by
+    target: implementation/improvement-extension
 ```
 # Logosの変更
 
@@ -78,6 +85,12 @@ kind: criterion
 links:
   - relation: applies_to
     target: concept/logos-change
+  - relation: implemented_by
+    target: implementation/read-markdown
+  - relation: implemented_by
+    target: implementation/read-typescript
+  - relation: verified_by
+    target: verification/knowledge
 ```
 # 注釈は原本の対象に結び付ける
 
@@ -90,6 +103,12 @@ kind: criterion
 links:
   - relation: applies_to
     target: concept/logos-change
+  - relation: implemented_by
+    target: implementation/knowledge-extension
+  - relation: implemented_by
+    target: implementation/knowledge-graph
+  - relation: verified_by
+    target: verification/knowledge
 ```
 # 語句の順位と概念からの適用を分ける
 
@@ -102,6 +121,10 @@ kind: criterion
 links:
   - relation: applies_to
     target: concept/logos-change
+  - relation: implemented_by
+    target: implementation/atomic-write
+  - relation: verified_by
+    target: verification/workflow
 ```
 # 原本を失わない変更
 
@@ -114,6 +137,14 @@ kind: criterion
 links:
   - relation: applies_to
     target: concept/logos-change
+  - relation: implemented_by
+    target: implementation/run-process
+  - relation: implemented_by
+    target: implementation/execution-extension
+  - relation: implemented_by
+    target: implementation/tasks-extension
+  - relation: verified_by
+    target: verification/workflow
 ```
 # 実行と結果確認を区別する
 
@@ -126,6 +157,8 @@ kind: criterion
 links:
   - relation: applies_to
     target: concept/logos-change
+  - relation: implemented_by
+    target: implementation/public-documentation
 ```
 # 公開機能の説明を確認する
 
@@ -138,6 +171,10 @@ kind: criterion
 links:
   - relation: applies_to
     target: concept/logos-change
+  - relation: implemented_by
+    target: implementation/host
+  - relation: verified_by
+    target: verification/workflow
 ```
 # 説明と実行を同じ登録に結び付ける
 

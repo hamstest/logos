@@ -1,23 +1,14 @@
-/* @logos
-format: 1
-id: verification/knowledge
-kind: verification
-attach: file
-links:
-  - relation: verifies
-    target: criterion/annotation-boundaries
-  - relation: verifies
-    target: criterion/semantic-context
-*/
-import { test } from 'node:test';
+import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readMarkdown } from '../src/knowledge/markdown.js';
 import { readTypeScript } from '../src/knowledge/typescript.js';
 import { KnowledgeGraph } from '../src/knowledge/graph.js';
 const source = (text: string, path = 'test.md', scope = 'shared') => ({ text, path, scope, rootId: 'test' });
 const mark = (id: string, extra = '') => '```logos\nformat: 1\nid: ' + id + '\nkind: concept\n' + extra + '\n```\n';
-const code = (id: string, extra = '') => '/* @logos\nformat: 1\nid: ' + id + '\nkind: implementation\n' + extra + '\n*/\n';
+const code = (id: string) => '// @logos-id ' + id + '\n';
 
+// @logos-id verification/knowledge
+describe('verification/knowledge', () => {
 test('Markdown scopes include children, exclude following annotations and preserve literal examples', () => {
   const text = mark('parent') + '# Parent\nIntro\n' + mark('child') + '## Child\nNested\n' + mark('next') + '# Next\nFinal\n';
   const r = readMarkdown(source(text));
@@ -46,7 +37,7 @@ test('TypeScript discovers actual declarations without executing source', () => 
 test('TypeScript does not interpret strings, templates, regexes, or jump past unsupported targets', () => {
   const literal = JSON.stringify(code('fake'));
   assert.equal(readTypeScript(source('const s = ' + literal + '; const t = `' + code('fake2') + '`; const r = /foo/;', 'a.ts')).nodes.length, 0);
-  for (const text of [code('x') + 'console.log(1); function f() {}', code('x') + 'const a = 1, b = 2;', code('x'), code('a') + code('b') + 'function f() {}']) {
+  for (const text of [code('x') + 'interface Unsupported {} function f() {}', code('x') + 'const a = 1, b = 2;', code('x'), code('a') + code('b') + 'function f() {}']) {
     const r = readTypeScript(source(text, 'a.ts')); assert.equal(r.nodes.length, 0); assert.ok(r.diagnostics.length, text);
   }
   assert.equal(readTypeScript(source(code('x') + 'function broken( {', 'a.ts')).diagnostics[0].code, 'source-syntax');
@@ -79,4 +70,6 @@ test('BOM originals preserve source offsets and their first annotation', () => {
   const read = readMarkdown(source(md)); assert.equal(read.nodes[0].id, 'bom'); assert.equal(md.slice(read.nodes[0].origin.content.start).trim(), '# Heading');
   const ts = '\uFEFF#!/usr/bin/env node\n' + code('bom-ts') + 'function main() {}';
   const result = readTypeScript(source(ts, 'cli.ts')); assert.deepEqual(result.diagnostics, []); assert.equal(result.nodes[0].content, 'function main() {}');
+});
+
 });

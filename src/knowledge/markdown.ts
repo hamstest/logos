@@ -3,14 +3,7 @@ import { annotation, issue, makeNode, rejectSharedTargets, type Reader, type Sou
 
 const parser = new MarkdownIt();
 
-/* @logos
-format: 1
-id: implementation/read-markdown
-kind: implementation
-links:
-  - relation: implements
-    target: criterion/annotation-boundaries
-*/
+// @logos-id implementation/read-markdown
 export function readMarkdown(source: SourceInput): ReadResult {
   const tokens = parser.parse(source.text.replace(/^\uFEFF/, ' '), {});
   const offsets = [0];

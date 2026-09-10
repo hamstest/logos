@@ -18,6 +18,8 @@ export async function loadGraph(roots: SourceRoot[], readers: Reader[]): Promise
         return;
       }
       if (!stat.isFile()) return;
+      const markdown = ['.md', '.markdown'].includes(path.extname(file).toLowerCase());
+      if ((root.role === 'knowledge') !== markdown) return;
       const canonical = await fs.realpath(file);
       if (seen.has(canonical)) {
         if (seen.get(canonical) !== root.id) results.push({ nodes: [], diagnostics: [{ code: 'overlapping-root', message: 'File is already registered under root ' + seen.get(canonical), rootId: root.id, path: path.relative(root.path, file), scope: root.scope }] });
@@ -30,7 +32,10 @@ export async function loadGraph(roots: SourceRoot[], readers: Reader[]): Promise
       results.push(reader.read({ rootId: root.id, path: path.relative(root.path, file).replaceAll('\\', '/'), text, scope: root.scope }));
     }
     for (const include of root.include) {
-      try { await walk(await containedPath(root.path, include)); }
+      try {
+        if (root.optional) { try { await fs.stat(root.path); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue; throw error; } }
+        await walk(await containedPath(root.path, include));
+      }
       catch (error) { results.push({ nodes: [], diagnostics: [{ code: 'source-read', message: String(error), rootId: root.id, path: include, scope: root.scope }] }); }
     }
   }

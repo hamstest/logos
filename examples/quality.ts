@@ -1,14 +1,7 @@
 import { z } from 'zod';
 import type { Extension } from '../src/host/host.js';
 const input = z.object({ members: z.array(z.object({ name: z.string().min(1), public: z.boolean(), description: z.string() })) });
-/* @logos
-format: 1
-id: implementation/public-documentation
-kind: implementation
-links:
-  - relation: implements
-    target: criterion/public-documentation
-*/
+// @logos-id implementation/public-documentation
 export function checkDocumentation(value: z.infer<typeof input>) {
   const seen = new Set<string>(), problems: string[] = [];
   for (const member of value.members) {

@@ -3,16 +3,7 @@ import { changeSchema } from '../knowledge/contracts.js';
 import { z } from 'zod';
 import type { Extension } from '../host/host.js';
 import { readTask } from './tasks.js';
-/* @logos
-format: 1
-id: implementation/improvement-extension
-kind: implementation
-links:
-  - relation: implements
-    target: concept/logos-change
-  - relation: depends_on
-    target: implementation/host
-*/
+// @logos-id implementation/improvement-extension
 export const improvement: Extension = {
   implementationId: 'implementation/improvement-extension',
   id: 'improvement', description: 'Turn corrections, external ideas and discoveries into tracked improvements and reusable scoped knowledge.', requires: ['knowledge', 'tasks'],

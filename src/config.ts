@@ -1,9 +1,9 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { readJson } from './host/files.js';
+import { containedPath, readJson } from './host/files.js';
 
-export const rootSchema = z.object({ id: z.string().min(1), path: z.string(), scope: z.string().min(1), include: z.array(z.string()).default(['.']) });
+export const rootSchema = z.object({ id: z.string().min(1), path: z.string(), scope: z.string().min(1), include: z.array(z.string()).default(['.']), role: z.enum(['knowledge', 'source']).default('knowledge') });
 export const projectSchema = z.object({ id: z.string().regex(/^project\/[^\s]+$/), path: z.string(), title: z.string(), sources: z.array(z.string()).default(['.']) });
 export const runnerSchema = z.object({ id: z.string(), command: z.string(), args: z.array(z.string()).default([]), description: z.string().default(''), timeoutMs: z.number().int().positive().default(300000) });
 const configSchema = z.object({
@@ -11,7 +11,7 @@ const configSchema = z.object({
   plugins: z.array(z.object({ module: z.string(), enabled: z.boolean().default(true), options: z.unknown().optional() })).default([]),
   contextFilters: z.array(z.string()).default([]), runners: z.array(runnerSchema).default([]),
 });
-export type SourceRoot = z.infer<typeof rootSchema>;
+export type SourceRoot = z.infer<typeof rootSchema> & { optional?: boolean };
 export type Project = z.infer<typeof projectSchema>;
 export type Runner = z.infer<typeof runnerSchema>;
 export type Config = z.infer<typeof configSchema>;
@@ -33,8 +33,22 @@ export async function projectFor(workspace: string, id?: string) {
   return { ...project, path: absolute };
 }
 export async function sourceRoots(workspace: string, config: Config): Promise<SourceRoot[]> {
-  const roots = config.roots.map(r => ({ ...r, path: path.resolve(workspace, r.path) }));
-  for (const p of await projects(workspace)) if (p.sources.length) roots.push({ id: `${p.id}/source`, path: path.resolve(workspace, p.path), include: p.sources, scope: p.id });
+  const roots: SourceRoot[] = [];
+  for (const root of config.roots) {
+    const absolute = path.resolve(workspace, root.path);
+    if (root.role === 'knowledge') await containedPath(workspace, path.relative(workspace, absolute));
+    roots.push({ ...root, path: absolute });
+  }
+  for (const p of await projects(workspace)) {
+    if (p.sources.length) roots.push({ id: p.id + '/source', path: path.resolve(workspace, p.path), include: p.sources, scope: p.id, role: 'source' });
+    roots.push(await projectKnowledgeRoot(workspace, p.id));
+  }
   if (new Set(roots.map(r => r.id)).size !== roots.length) throw new Error('Duplicate source root ID');
   return roots;
+}
+
+// The full encoded project ID is one portable directory name, independent of the external checkout.
+export async function projectKnowledgeRoot(workspace: string, project: string): Promise<SourceRoot> {
+  projectSchema.shape.id.parse(project);
+  return { id: project + '/knowledge', path: await containedPath(workspace, 'knowledge/projects/' + encodeURIComponent(project)), scope: project, include: ['.'], role: 'knowledge', optional: true };
 }

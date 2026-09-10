@@ -3,14 +3,7 @@ import type { Diagnostic, KnowledgeNode, ReadResult } from './model.js';
 export interface Edge { source: string; relation: string; target: string }
 export const visible = (scope: string, project?: string) => scope === 'shared' || scope === project;
 
-/* @logos
-format: 1
-id: implementation/knowledge-graph
-kind: implementation
-links:
-  - relation: implements
-    target: criterion/semantic-context
-*/
+// @logos-id implementation/knowledge-graph
 export class KnowledgeGraph {
   readonly nodes = new Map<string, KnowledgeNode>();
   readonly diagnostics: Diagnostic[];

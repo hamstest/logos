@@ -41,16 +41,7 @@ export async function allTasks(host: Host) {
   }
   return result;
 }
-/* @logos
-format: 1
-id: implementation/tasks-extension
-kind: implementation
-links:
-  - relation: implements
-    target: criterion/explicit-execution
-  - relation: depends_on
-    target: implementation/host
-*/
+// @logos-id implementation/tasks-extension
 export const tasks: Extension = {
   implementationId: 'implementation/tasks-extension',
   id: 'tasks', description: 'Connect local projects and record objectives, progress, evidence, and outcomes.',
