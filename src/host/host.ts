@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import type { Reader, SourceInput } from '../knowledge/model.js';
+import type { SearchProvider } from '../knowledge/search.js';
+import type { Reader } from '../knowledge/model.js';
 export interface CallContext { project?: string; taskId?: string }
 export interface Operation<I = any> {
   name: string; description: string; input: z.ZodType<I>; output: z.ZodType;
@@ -10,14 +11,19 @@ export interface Extension {
   id: string; description: string; requires?: string[]; implementationId?: string;
   setup(host: Host, options?: unknown): void | Promise<void>;
 }
-// @logos-id implementation/host
 export class Host {
   readonly readers: Reader[] = [];
-  readonly sources: (() => Promise<SourceInput[]>)[] = [];
+  readonly searchProviders: SearchProvider[] = [];
+  addSearchProvider(provider: SearchProvider) {
+    if (!provider.id || provider.id === 'lexical' || this.searchProviders.some(p => p.id === provider.id)) throw new Error('Duplicate or reserved search provider ID');
+    this.searchProviders.push(provider);
+  }
   private operations = new Map<string, Operation & { extension: string }>();
   private extensions = new Map<string, { id: string; description: string; requires: string[]; entry: string; implementationId?: string }>();
   private owner = '';
   private ownerImplementation: string | undefined;
+  readonly disposers: (() => void)[] = [];
+  close() { for (const dispose of this.disposers.splice(0)) dispose(); }
   constructor(readonly workspace: string) {}
   register<I>(operation: Operation<I>) {
     if (!this.owner) throw new Error('Operations must be registered during extension setup');
@@ -42,7 +48,7 @@ export class Host {
     }
   }
   describe() {
-    return { extensions: [...this.extensions.values()], readers: this.readers.map(({ id, extensions }) => ({ id, extensions })), operations: [...this.operations.values()].map(op => ({ name: op.name, description: op.description, extension: op.extension, implementationId: op.implementationId, input: z.toJSONSchema(op.input), output: z.toJSONSchema(op.output) })) };
+    return { searchProviders: this.searchProviders.map(p => p.id), extensions: [...this.extensions.values()], readers: this.readers.map(({ id, extensions }) => ({ id, extensions })), operations: [...this.operations.values()].map(op => ({ name: op.name, description: op.description, extension: op.extension, implementationId: op.implementationId, input: z.toJSONSchema(op.input), output: z.toJSONSchema(op.output) })) };
   }
   async call(name: string, input: unknown = {}, context: CallContext = {}): Promise<any> {
     const op = this.operations.get(name);
@@ -51,3 +57,4 @@ export class Host {
   }
   async resolve(id: string, context: CallContext = {}) { return this.call('knowledge.get', { id }, context); }
 }
+// @logos-id host

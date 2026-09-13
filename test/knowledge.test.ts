@@ -1,75 +1,86 @@
+import { readFileSync } from 'node:fs';
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readMarkdown } from '../src/knowledge/markdown.js';
+import { readMarkdown, insertDefinition } from '../src/knowledge/markdown.js';
 import { readTypeScript } from '../src/knowledge/typescript.js';
+import { parseDefinition } from '../src/knowledge/model.js';
 import { KnowledgeGraph } from '../src/knowledge/graph.js';
-const source = (text: string, path = 'test.md', scope = 'shared') => ({ text, path, scope, rootId: 'test' });
-const mark = (id: string, extra = '') => '```logos\nformat: 1\nid: ' + id + '\nkind: concept\n' + extra + '\n```\n';
-const code = (id: string) => '// @logos-id ' + id + '\n';
+const source = (text: string, path = 'test.md', scope = 'shared') => ({text,path,scope,rootId:'test'});
+const mark = (id: string, facts = '', body = '# '+id) => insertDefinition(body,parseDefinition('def '+id+'\n'+facts.split('\n').filter(Boolean).map(l=>'  '+l).join('\n')));
+const vocabulary = () => readMarkdown(source(readFileSync('knowledge/shared/language.md','utf8'),'language.md'));
+const code = (id: string) => '// @logos-id '+id+'\n';
 
-// @logos-id verification/knowledge
-describe('verification/knowledge', () => {
-test('Markdown scopes include children, exclude following annotations and preserve literal examples', () => {
-  const text = mark('parent') + '# Parent\nIntro\n' + mark('child') + '## Child\nNested\n' + mark('next') + '# Next\nFinal\n';
-  const r = readMarkdown(source(text));
-  assert.equal(r.diagnostics.length, 0);
-  assert.deepEqual(r.nodes.map(n => n.id), ['parent', 'child', 'next']);
-  assert.equal(r.nodes[0].content, '# Parent\nIntro\n## Child\nNested');
-  assert.equal(text.slice(r.nodes[0].origin.edit.end), mark('next') + '# Next\nFinal\n');
-  const examples = '````md\n' + mark('fake') + '# Fake\n````\n\n> ' + mark('quoted').replaceAll('\n', '\n> ') + '\n';
-  assert.equal(readMarkdown(source(examples)).nodes.length, 0);
+describe('verify-knowledge', () => {
+test('Headings own definitions below them, including child sections and exact sibling boundaries', () => {
+  const a=mark('parent','','# Parent\nIntro\n'),b=mark('child','','## Child\nNested\n'),c=mark('next','','# Next\nFinal\n');
+  const text=a+b+c,r=readMarkdown(source(text));
+  assert.deepEqual(r.diagnostics,[]);
+  assert.deepEqual(r.nodes.map(n=>n.id),['parent','child','next']);
+  assert.equal(r.nodes[0].content,'# Parent\nIntro\n\n\n## Child\nNested');
+  assert.equal(text.slice(r.nodes[0].origin.edit.end),c);
+  assert.equal(text.slice(r.nodes[0].origin.edit.start,r.nodes[0].origin.edit.end),a+b);
+  assert.equal(readMarkdown(source('~~~~markdown\n'+mark('literal')+'~~~~\n')).nodes.length,0);
+  assert.equal(readMarkdown(source(mark('quote').split('\n').map(l=>'> '+l).join('\n'))).nodes.length,0);
 });
-test('Markdown reports malformed, misplaced, and ambiguous annotations', () => {
-  for (const text of [mark('a') + 'Paragraph\n# Heading', mark('a') + mark('b') + '# Heading', '```logos\nformat: 1\nid: a\nid: b\nkind: concept\n```\n# H']) {
-    const r = readMarkdown(source(text)); assert.equal(r.nodes.length, 0); assert.ok(r.diagnostics.length);
+
+test('Malformed, preceding, separated and duplicate definitions are diagnosed', () => {
+  const fence=(id:string)=>'~~~logos\ndef '+id+'\n~~~\n';
+  for(const text of [fence('a')+'# H', '# H\n'+fence('a')+'paragraph\n', '# H\n'+fence('a')+fence('b'), '# H\n~~~logos\ndef a\ndef b\n~~~']) {
+    const r=readMarkdown(source(text));assert.equal(r.nodes.length,0,text);assert.ok(r.diagnostics.length);
   }
-  assert.equal(readMarkdown(source(mark('file', 'attach: file') + 'Plain prose')).nodes[0].content, 'Plain prose');
+  assert.throws(()=>insertDefinition('Plain prose',{id:'file',statements:[]}));
 });
-test('TypeScript discovers actual declarations without executing source', () => {
-  const text = "throw new Error('MUST NOT EXECUTE');\n" + code('fn') + 'export function f() {}\n' + code('cls') + 'class C {\n' + code('method') + 'm() {}\n}\n' + code('arrow') + 'const f2 = () => 1;';
-  const r = readTypeScript(source(text, 'example.ts'));
-  assert.deepEqual(r.diagnostics, []);
-  assert.deepEqual(r.nodes.map(n => n.id), ['fn', 'cls', 'method', 'arrow']);
-  assert.equal(r.nodes[0].content, 'export function f() {}');
-  const renamed = readTypeScript(source(text.replace('function f()', 'function renamed()'), 'moved.ts'));
-  assert.equal(renamed.nodes[0].id, 'fn');
+
+test('Setext headings, CRLF and BOM preserve ownership and offsets', () => {
+  const raw='\uFEFFTitle\r\n=====\r\n\r\nBody\r\n\r\n~~~logos\r\ndef first\r\n~~~\r\n\r\n# Next\r\n';
+  const r=readMarkdown(source(raw));
+  assert.deepEqual(r.diagnostics,[]);assert.equal(r.nodes[0].id,'first');assert.equal(r.nodes[0].origin.edit.start,0);
+  assert.equal(raw.slice(r.nodes[0].origin.edit.end),'# Next\r\n');
+  assert.match(r.nodes[0].content,/Title\r\n=====/);
 });
-test('TypeScript does not interpret strings, templates, regexes, or jump past unsupported targets', () => {
-  const literal = JSON.stringify(code('fake'));
-  assert.equal(readTypeScript(source('const s = ' + literal + '; const t = `' + code('fake2') + '`; const r = /foo/;', 'a.ts')).nodes.length, 0);
-  for (const text of [code('x') + 'interface Unsupported {} function f() {}', code('x') + 'const a = 1, b = 2;', code('x'), code('a') + code('b') + 'function f() {}']) {
-    const r = readTypeScript(source(text, 'a.ts')); assert.equal(r.nodes.length, 0); assert.ok(r.diagnostics.length, text);
+
+test('TypeScript reads trailing IDs without executing code and retains IDs through renames', () => {
+  const text = "throw new Error('MUST NOT EXECUTE');\nexport function f() {}\n"+code('fn')
+    +'class C {\nm() {}\n'+code('method')+'}\n'+code('cls')+'const f2 = () => 1;\n'+code('arrow');
+  const r=readTypeScript(source(text,'code.ts'));
+  assert.deepEqual(r.diagnostics,[]);assert.deepEqual(r.nodes.map(n=>n.id),['fn','method','cls','arrow']);
+  assert.equal(r.nodes[0].content,'export function f() {}');
+  assert.equal(readTypeScript(source(text.replace('function f()','function renamed()'),'moved.ts')).nodes[0].id,'fn');
+  const adjacent=readTypeScript(source('function first() {}\n'+code('first')+'function second() {}\n'+code('second'),'adjacent.ts'));
+  assert.deepEqual(adjacent.nodes.map(n=>[n.id,n.title]),[['first','first'],['second','second']]);
+});
+
+test('Source literals and unsupported preceding targets cannot create or steal IDs', () => {
+  const literal=JSON.stringify(code('fake'));
+  assert.equal(readTypeScript(source('const s = '+literal+'; const r = /foo/;','a.ts')).nodes.length,0);
+  for(const text of ['function f() {}\ninterface I {}\n'+code('x'),'const a = 1, b = 2;\n'+code('x'),code('x')+'function f() {}','function f() {}\n'+code('a')+code('b'),'function f() {}\n'+code('old/name')]){
+    const r=readTypeScript(source(text,'a.ts'));assert.equal(r.nodes.length,0);assert.ok(r.diagnostics.length);
   }
-  assert.equal(readTypeScript(source(code('x') + 'function broken( {', 'a.ts')).diagnostics[0].code, 'source-syntax');
-});
-test('Semantic selection walks all parents independently of lexical rank and paginates', () => {
-  const docs = [mark('refund', 'links: [{relation: is_a, target: money}, {relation: is_a, target: external}]') + '# Refund', mark('money') + '# Money', mark('external') + '# External', mark('rule1', 'links: [{relation: applies_to, target: money}]') + '# Reconcile', mark('rule2', 'links: [{relation: applies_to, target: external}]') + '# Repetition'];
-  for (let i = 0; i < 30; i++) docs.push(mark('noise' + i) + '# Refund noise');
-  const g = new KnowledgeGraph(docs.map((d, i) => readMarkdown(source(d, i + '.md'))));
-  const page = g.context({ concepts: ['refund'], query: 'noise', limit: 1 });
-  assert.equal(page.items[0].node.id, 'rule1'); assert.equal(page.nextOffset, 1);
-  assert.equal(g.context({ concepts: ['refund'], limit: 1, offset: 1 }).items[0].node.id, 'rule2');
-  assert.deepEqual(g.related('money').map(e => e.source).sort(), ['refund', 'rule1']);
-});
-test('Project isolation, duplicate IDs, unresolved links and cycles remain visible', () => {
-  const g = new KnowledgeGraph([
-    readMarkdown(source(mark('shared') + '# Shared')),
-    readMarkdown(source(mark('private', 'links: [{relation: depends_on, target: shared}]') + '# Private', 'p.md', 'project/p')),
-    readMarkdown(source(mark('cycle', 'links: [{relation: is_a, target: cycle}, {relation: depends_on, target: missing}]') + '# Cycle')),
-    readMarkdown(source(mark('dup') + '# D', 'd1.md')), readMarkdown(source(mark('dup') + '# D', 'd2.md')),
-  ]);
-  assert.equal(g.related('shared').length, 0); assert.equal(g.related('shared', 'project/p').length, 1);
-  assert.equal(g.get('private'), undefined); assert.equal(g.get('dup'), undefined);
-  assert.ok(g.context({ concepts: ['cycle'] }).incomplete);
-  assert.ok(g.problems().some(d => d.code === 'hierarchy-cycle'));
-  assert.ok(g.problems().some(d => d.code === 'unresolved-reference'));
+  assert.equal(readTypeScript(source('function broken( {\n'+code('x'),'a.ts')).diagnostics[0].code,'source-syntax');
+  const bom=readTypeScript(source('\uFEFF#!/usr/bin/env node\nfunction main() {}\n'+code('bom-ts'),'cli.ts'));
+  assert.deepEqual(bom.diagnostics,[]);assert.equal(bom.nodes[0].content,'function main() {}');
 });
 
-test('BOM originals preserve source offsets and their first annotation', () => {
-  const md = '\uFEFF' + mark('bom') + '# Heading\n';
-  const read = readMarkdown(source(md)); assert.equal(read.nodes[0].id, 'bom'); assert.equal(md.slice(read.nodes[0].origin.content.start).trim(), '# Heading');
-  const ts = '\uFEFF#!/usr/bin/env node\n' + code('bom-ts') + 'function main() {}';
-  const result = readTypeScript(source(ts, 'cli.ts')); assert.deepEqual(result.diagnostics, []); assert.equal(result.nodes[0].content, 'function main() {}');
+test('All parents supply criteria before pagination independently of lexical rank', () => {
+  const docs=[mark('child','is left, right'),mark('left','governed-by rule1'),mark('right','governed-by rule2'),mark('rule1','is criterion'),mark('rule2','is criterion')];
+  for(let i=0;i<30;i++)docs.push(mark('noise'+i,'','# Noise'));
+  const g=new KnowledgeGraph([vocabulary(),...docs.map((d,i)=>readMarkdown(source(d,i+'.md')))]);
+  const page=g.context({concepts:['child'],query:'noise',limit:1});
+  assert.equal(page.items[0].node.id,'rule1');assert.equal(page.nextOffset,1);
+  assert.equal(g.context({concepts:['child'],limit:1,offset:1}).items[0].node.id,'rule2');
+  assert.ok(g.related('left').some(e=>e.source==='child'&&e.relation==='is'));
 });
 
+test('Scope boundaries, duplicates, unresolved references and cycles stay visible', () => {
+  const g=new KnowledgeGraph([vocabulary(),readMarkdown(source(mark('shared'))),
+    readMarkdown(source(mark('private','depends-on shared'),'p.md','p')),
+    readMarkdown(source(mark('cycle','is cycle\ndepends-on missing'))),
+    readMarkdown(source(mark('dup'),'d1.md')),readMarkdown(source(mark('dup'),'d2.md'))]);
+  assert.equal(g.related('shared').length,0);assert.equal(g.related('shared','p').length,1);
+  assert.equal(g.get('private'),undefined);assert.equal(g.get('dup'),undefined);
+  assert.ok(g.context({concepts:['cycle']}).incomplete);
+  assert.ok(g.problems().some(d=>d.code==='hierarchy-cycle'));
+  assert.ok(g.problems().some(d=>d.code==='unresolved-reference'));
 });
+});
+// @logos-id verify-knowledge

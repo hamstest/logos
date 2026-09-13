@@ -19,3 +19,4 @@ export async function createHost(workspace: string): Promise<Host> {
   }
   await host.load(entries); return host;
 }
+// @logos-id create-host

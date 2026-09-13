@@ -12,18 +12,28 @@
     {
       "id": "self",
       "path": ".",
-      "scope": "project/logos",
+      "scope": "logos",
       "include": [
         "src",
         "test",
-        "examples/quality.ts"
+        "scripts"
       ],
       "role": "source"
+    },
+    {
+      "id": "self-docs",
+      "path": ".",
+      "scope": "logos",
+      "include": [
+        "README.md",
+        "AGENTS.md"
+      ],
+      "role": "knowledge"
     }
   ],
   "plugins": [
     {
-      "module": "dist/examples/quality.js",
+      "module": "dist/src/extensions/quality.js",
       "enabled": true
     }
   ],
@@ -35,9 +45,9 @@
       "id": "local-inventory",
       "command": "node",
       "args": [
-        "${workspace}/examples/inventory-runner.mjs"
+        "${workspace}/scripts/inventory-runner.mjs"
       ],
-      "description": "Read-only project file inventory example (not an autonomous agent)",
+      "description": "Read-only inventory of the connected project files",
       "timeoutMs": 30000
     }
   ]

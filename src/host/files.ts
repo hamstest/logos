@@ -28,7 +28,6 @@ export async function containedPath(base: string, relative: string): Promise<str
   return target;
 }
 
-// @logos-id implementation/atomic-write
 export async function atomicWrite(file: string, content: string, expected: string | null): Promise<void> {
   await fs.mkdir(path.dirname(file), { recursive: true });
   const lockPath = `${file}.logos-lock`;
@@ -54,6 +53,7 @@ export async function atomicWrite(file: string, content: string, expected: strin
     await fs.rm(lockPath, { force: true });
   }
 }
+// @logos-id atomic-write
 export async function writeJson(file: string, value: unknown, expected?: string | null) {
   const before = await textOrNull(file);
   await atomicWrite(file, JSON.stringify(value, null, 2) + '\n', expected === undefined ? (before === null ? null : hash(before)) : expected);

@@ -1,7 +1,6 @@
 ﻿import ts from 'typescript';
-import { issue, makeNode, rejectSharedTargets, without, type Reader, type SourceInput, type Span, type ReadResult } from './model.js';
+import { idSchema, issue, makeNode, rejectSharedTargets, without, type Reader, type SourceInput, type Span, type ReadResult } from './model.js';
 
-// @logos-id implementation/read-typescript
 export function readTypeScript(source: SourceInput): ReadResult {
   const scriptKind = source.path.endsWith('.tsx') ? ts.ScriptKind.TSX : source.path.endsWith('.jsx') ? ts.ScriptKind.JSX : ts.ScriptKind.TS;
   const ast = ts.createSourceFile(source.path, source.text.replace(/^\uFEFF#!/, '\uFEFF//'), ts.ScriptTarget.Latest, true, scriptKind);
@@ -19,7 +18,8 @@ export function readTypeScript(source: SourceInput): ReadResult {
         : ts.isExpressionStatement(node) ? node.expression.getText(ast).split('\n')[0].slice(0, 100) : named.name?.getText(ast);
       targets.push({ span: { start: node.getStart(ast), end: node.end }, name: name ?? 'default', kind: ts.SyntaxKind[node.kind] });
     }
-    ts.forEachChild(node, visit);
+    // Closing-brace and EOF trivia include trailing IDs after the last member.
+    for (const child of node.getChildren(ast)) visit(child);
   }
   visit(ast);
   const allComments = [...comments.values()].sort((a, b) => a.start - b.start);
@@ -35,14 +35,15 @@ export function readTypeScript(source: SourceInput): ReadResult {
       const match = /^\/\/[ \t]*@logos-id[ \t]+([^\s#]+)[ \t]*$/.exec(raw);
       if (!match) throw new Error('Source anchors contain only // @logos-id ID');
       const lineStart = source.text.lastIndexOf('\n', marker.start - 1) + 1;
-      if (source.text.slice(lineStart, marker.start).trim()) throw new Error('Place the ID on its own line before its target');
-      const target = targets.filter(t => t.span.start >= marker.end).sort((a, b) => a.span.start - b.span.start)[0];
-      if (!target || without(source.text, { start: marker.end, end: target.span.start }, allComments).trim()) throw new Error('ID does not immediately precede a supported declaration or expression statement');
+      if (source.text.slice(lineStart, marker.start).trim()) throw new Error('Place the ID on its own line after its target');
+      const target = targets.filter(t => t.span.end <= marker.start).sort((a, b) => b.span.end - a.span.end)[0];
+      if (!target || without(source.text, { start: target.span.end, end: marker.start }, allComments).trim()) throw new Error('ID does not immediately follow a supported declaration or expression statement');
       // The code contributes identity and its current location, never semantic links or metadata.
-      result.nodes.push(makeNode(source, { format: 1, id: match[1], kind: 'source' }, marker, target.span,
-        { start: marker.start, end: target.span.end }, target.name, 'typescript', target.kind));
+      result.nodes.push(makeNode(source, { id: idSchema.parse(match[1]), statements: [] }, marker, target.span,
+        { start: target.span.start, end: marker.end }, target.name, 'typescript', target.kind));
     } catch (error) { result.diagnostics.push(issue(source, 'invalid-source-anchor', String(error), marker.start)); }
   }
   return rejectSharedTargets(source, result);
 }
+// @logos-id read-typescript
 export const typescriptReader: Reader = { id: 'typescript', extensions: ['.ts', '.tsx', '.js', '.mjs', '.cjs', '.jsx'], read: readTypeScript };

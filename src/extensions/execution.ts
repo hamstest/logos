@@ -1,5 +1,6 @@
+import { idSchema } from '../knowledge/model.js';
 import { runnerSchema } from '../config.js';
-import { taskResultSchema } from './tasks.js';
+import { taskResultSchema } from '../tasks/store.js';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -7,9 +8,8 @@ import { z } from 'zod';
 import { configuration, projectFor, type Runner } from '../config.js';
 import { readJson, writeJson } from '../host/files.js';
 import type { Extension } from '../host/host.js';
-import { readTask, saveTask } from './tasks.js';
+import { readTask, saveTask } from '../tasks/store.js';
 const responseSchema = z.object({ status: z.enum(['completed', 'failed', 'waiting']), summary: z.string(), artifacts: z.array(z.string()).default([]), checks: z.array(z.object({ description: z.string(), outcome: z.enum(['passed', 'failed', 'unverified']), evidence: z.unknown().optional() })).default([]) });
-// @logos-id implementation/run-process
 export async function runProcess(runner: Runner, cwd: string, payload: unknown): Promise<z.infer<typeof responseSchema>> {
   return new Promise((resolve, reject) => {
     const child = spawn(runner.command, runner.args, { cwd, shell: false, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
@@ -29,25 +29,25 @@ export async function runProcess(runner: Runner, cwd: string, payload: unknown):
     child.stdin.end(JSON.stringify(payload) + '\n');
   });
 }
-// @logos-id implementation/execution-extension
+// @logos-id run-process
 export const execution: Extension = {
-  implementationId: 'implementation/execution-extension',
+  implementationId: 'execution-extension',
   id: 'execution', description: 'Delegate tasks through a configured JSON process adapter; preserve attempts before launching.', requires: ['knowledge', 'tasks'],
   setup(host) {
 
     host.register({ name: 'execution.runners', description: 'List explicitly configured process adapters.', input: z.object({}), output: z.array(runnerSchema), async handler() { return (await configuration(host.workspace)).runners; }});
-    host.register({ name: 'execution.run', description: 'Delegate once in the task project directory. Interrupted or invalid responses require reconciliation, never automatic retry.', implementationId: 'implementation/run-process', input: z.object({ taskId: z.string(), runnerId: z.string(), concepts: z.array(z.string()).default([]), situation: z.record(z.string(), z.unknown()).default({}) }), output: z.object({ attempt: attemptSchema, task: taskResultSchema }), async handler(i, ctx) {
+    host.register({ name: 'execution.run', description: 'Delegate once in the task project directory. Interrupted or invalid responses require reconciliation, never automatic retry.', implementationId: 'run-process', input: z.object({ taskId: z.string(), runnerId: z.string(), concepts: z.array(idSchema).default([]), terms: z.array(z.string()).default([]), targets: z.array(idSchema).default([]), situation: z.record(z.string(), z.unknown()).default({}) }).strict(), output: z.object({ attempt: attemptSchema, task: taskResultSchema }), async handler(i, ctx) {
       const task = await readTask(host, i.taskId, ctx.project);
       if (task.activeAttempt) throw new Error('Previous attempt is unresolved; inspect and reconcile it before retrying');
       if (['completed', 'cancelled'].includes(task.status)) throw new Error('Reopen the task explicitly before executing again');
       const runner = (await configuration(host.workspace)).runners.find(r => r.id === i.runnerId); if (!runner) throw new Error('Unknown runner');
       const project = (await projectFor(host.workspace, task.project))!;
-      const context = await host.call('knowledge.context', { query: task.objective, concepts: i.concepts, situation: i.situation }, { project: task.project });
+      const context = await host.call('knowledge.context', { query: task.objective, concepts: i.concepts, terms: i.terms, targets: i.targets, situation: i.situation }, { project: task.project });
       const id = randomUUID(), file = path.join(host.workspace, '.logos/attempts', id + '.json');
-      const attempt = { id, taskId: task.id, runnerId: runner.id, state: 'prepared', startedAt: new Date().toISOString(), context, result: undefined as unknown, error: undefined as string | undefined };
+      const attempt = { id, taskId: task.id, runnerId: runner.id, state: 'prepared', startedAt: new Date().toISOString(), usedConcepts: context.concepts, result: undefined as unknown, error: undefined as string | undefined };
       await writeJson(file, attempt, null);
       // Claim the task using its revision before starting a process: concurrent starts cannot both win.
-      await saveTask(host, { ...task, status: 'running', activeAttempt: id }, task.revision);
+      await saveTask(host, { ...task, usedConcepts: [...new Set([...task.usedConcepts, ...context.concepts])], status: 'running', activeAttempt: id }, task.revision);
       try {
         attempt.state = 'running'; await writeJson(file, attempt);
         const resolvedRunner = { ...runner, command: runner.command.replaceAll('${workspace}', host.workspace), args: runner.args.map(arg => arg.replaceAll('${workspace}', host.workspace)) };
@@ -88,5 +88,6 @@ export const execution: Extension = {
     }});
   },
 };
+// @logos-id execution-extension
 
-const attemptSchema = z.object({ id: z.string(), taskId: z.string(), runnerId: z.string(), state: z.enum(['prepared', 'running', 'completed', 'failed', 'waiting', 'cancelled', 'unknown']), startedAt: z.string(), context: z.unknown(), result: responseSchema.optional(), error: z.string().optional(), reconciliation: z.object({ summary: z.string(), observedAt: z.string() }).optional() });
+const attemptSchema = z.object({ id: z.string(), taskId: z.string(), runnerId: z.string(), state: z.enum(['prepared', 'running', 'completed', 'failed', 'waiting', 'cancelled', 'unknown']), startedAt: z.string(), usedConcepts: z.array(idSchema), result: responseSchema.optional(), error: z.string().optional(), reconciliation: z.object({ summary: z.string(), observedAt: z.string() }).optional() });
