@@ -1,6 +1,6 @@
 # 操作手順
 
-リポジトリのルートで `npm ci` と `npm run build` を実行する。CLIは `npm run logos -- ...` または `node dist/src/cli.js ...`。別の場所から呼ぶ場合は `--workspace C:/develop/logos` を付ける。
+リポジトリのルートで `npm ci` と `npm run build` を実行する。CLIは `npm run logos -- ...` または `node dist/src/cli.js ...`。別の場所から呼ぶ場合は `--workspace PATH_TO_LOGOS` を付け、`PATH_TO_LOGOS` を対象のリポジトリパスに置き換える。
 
 `operations` は有効な拡張、読取器、公開操作と実際に検査する入出力スキーマを返す。入力はJSONファイルに保存し、`call 操作名 @ファイル名` で渡す。`-` なら標準入力、省略すれば `{}`。CLIはJSONを標準出力へ返し、エラー時は標準エラーへJSONを出して終了コード1になる。
 
